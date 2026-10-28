@@ -42,13 +42,37 @@ def stable_dedup_key(module: str, rec: dict) -> str:
         str(ref.get("type") or ""),
         str(ref.get("value") or ""),
     ])
-    return "auto:" + hashlib.sha1(basis.encode("utf-8")).hexdigest()
+    key = "auto:" + hashlib.sha1(basis.encode("utf-8")).hexdigest()
+    return key
+
+
+def _cap_dedup(dedup):
+    """Keep dedup keys short. A key built from a 160KB URL is huge and wasteful;
+    the md5 index would index it, but we hash long keys to keep the column lean
+    while preserving uniqueness."""
+    if dedup and len(dedup.encode("utf-8", "replace")) > 512:
+        return "h:" + hashlib.sha1(dedup.encode("utf-8", "replace")).hexdigest()
+    return dedup
+
+
+# Values longer than this are almost always junk (data: URIs, embedded blobs
+# katana/bbot pull out of pages), not useful recon assets — skip them rather
+# than bloat the store. Overridable, but well above any real URL length.
+MAX_VALUE_BYTES = int(os.environ.get("RECCE_MAX_VALUE", "32768"))
+
+
+def _too_long(s):
+    return s is not None and len(s.encode("utf-8", "replace")) > MAX_VALUE_BYTES
 
 
 def upsert_asset(cur, engagement, run_id, module, rec):
     t = rec.get("type")
     v = rec.get("value")
     if not t or not v:
+        return None
+    if _too_long(v):
+        # oversized value: skip (caller counts it). md5 dedup could index it,
+        # but a 160KB "URL" is noise we don't want in the inventory.
         return None
     attrs = rec.get("attrs") or {}
     cur.execute(
@@ -57,7 +81,7 @@ def upsert_asset(cur, engagement, run_id, module, rec):
             (engagement_id, type, value, attrs, source_module,
              first_run_id, last_run_id, first_seen, last_seen)
         VALUES (%s,%s,%s,%s,%s,%s,%s, now(), now())
-        ON CONFLICT (engagement_id, type, value) DO UPDATE
+        ON CONFLICT (engagement_id, type, md5(value)) DO UPDATE
             SET last_seen     = now(),
                 last_run_id   = EXCLUDED.last_run_id,
                 source_module = COALESCE(assets.source_module, EXCLUDED.source_module),
@@ -66,7 +90,8 @@ def upsert_asset(cur, engagement, run_id, module, rec):
         """,
         (engagement, t, v, psycopg2.extras.Json(attrs), module, run_id, run_id),
     )
-    return cur.fetchone()[0]
+    row = cur.fetchone()
+    return row[0] if row else None
 
 
 def resolve_asset_id(cur, engagement, ref):
@@ -81,7 +106,7 @@ def resolve_asset_id(cur, engagement, ref):
 
 
 def upsert_finding(cur, engagement, run_id, module, rec):
-    dedup = stable_dedup_key(module, rec)
+    dedup = _cap_dedup(stable_dedup_key(module, rec))
     asset_id = resolve_asset_id(cur, engagement, rec.get("asset_ref"))
     cur.execute(
         """
@@ -90,7 +115,7 @@ def upsert_finding(cur, engagement, run_id, module, rec):
              cvss_vector, cwe, description, evidence, remediation, refs,
              source_module, dedup_key)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT (engagement_id, dedup_key) DO UPDATE
+        ON CONFLICT (engagement_id, md5(dedup_key)) DO UPDATE
             SET run_id      = EXCLUDED.run_id,
                 asset_id    = COALESCE(findings.asset_id, EXCLUDED.asset_id),
                 severity    = EXCLUDED.severity,
@@ -162,23 +187,38 @@ def main():
                     n_bad += 1
                     continue
                 kind = rec.get("kind")
-                if kind == "asset":
-                    if upsert_asset(cur, args.engagement, args.run, args.module, rec):
-                        n_assets += 1
-                        if args.workdir:
-                            t = rec.get("type", "unknown")
-                            fh = workfiles.get(t)
-                            if fh is None:
-                                fh = open(os.path.join(args.workdir, f"{t}.jsonl"), "a")
-                                workfiles[t] = fh
-                            fh.write(json.dumps(rec) + "\n")
+                # Isolate each record in a savepoint so one unexpected DB error
+                # (an oversized/odd row) skips just that record instead of
+                # aborting the whole module and losing the batch.
+                cur.execute("SAVEPOINT rec")
+                try:
+                    if kind == "asset":
+                        if upsert_asset(cur, args.engagement, args.run, args.module, rec):
+                            n_assets += 1
+                            if args.workdir:
+                                t = rec.get("type", "unknown")
+                                fh = workfiles.get(t)
+                                if fh is None:
+                                    fh = open(os.path.join(args.workdir, f"{t}.jsonl"), "a")
+                                    workfiles[t] = fh
+                                fh.write(json.dumps(rec) + "\n")
+                        else:
+                            cur.execute("RELEASE SAVEPOINT rec")
+                            n_bad += 1
+                            continue
+                    elif kind == "finding":
+                        upsert_finding(cur, args.engagement, args.run, args.module, rec)
+                        n_findings += 1
                     else:
+                        cur.execute("RELEASE SAVEPOINT rec")
+                        n_bad += 1
                         continue
-                elif kind == "finding":
-                    upsert_finding(cur, args.engagement, args.run, args.module, rec)
-                    n_findings += 1
-                else:
+                    cur.execute("RELEASE SAVEPOINT rec")
+                except psycopg2.Error as e:
+                    cur.execute("ROLLBACK TO SAVEPOINT rec")
+                    cur.execute("RELEASE SAVEPOINT rec")
                     n_bad += 1
+                    sys.stderr.write(f"recce-ingest[{args.module}]: skipped a record ({e.pgcode})\n")
                     continue
                 # incremental commit: progress is durable without waiting for EOF
                 since_commit += 1

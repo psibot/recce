@@ -69,9 +69,13 @@ CREATE TABLE IF NOT EXISTS assets (
     first_run_id   UUID REFERENCES runs(id) ON DELETE SET NULL,
     last_run_id    UUID REFERENCES runs(id) ON DELETE SET NULL,
     first_seen     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_seen      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (engagement_id, type, value)
+    last_seen      TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- dedup uniqueness is a hash index (below), not an inline UNIQUE, because a
+    -- btree can't index a value over ~2704 bytes and recon turns up very long
+    -- URLs (data: URIs, long tokens). md5(value) is always 32 bytes.
 );
+-- Dedup on a hash of value so arbitrarily long values still dedup + upsert.
+CREATE UNIQUE INDEX IF NOT EXISTS assets_dedup_idx ON assets (engagement_id, type, md5(value));
 CREATE INDEX IF NOT EXISTS assets_eng_type_idx ON assets (engagement_id, type);
 CREATE INDEX IF NOT EXISTS assets_attrs_gin    ON assets USING gin (attrs);
 CREATE INDEX IF NOT EXISTS assets_lastseen_idx ON assets (engagement_id, last_seen);
@@ -112,9 +116,10 @@ CREATE TABLE IF NOT EXISTS findings (
     priority       TEXT CHECK (priority IN ('fire','smoke','ice')),
 
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (engagement_id, dedup_key)
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- dedup uniqueness is a hash index (below); see the note on assets.
 );
+CREATE UNIQUE INDEX IF NOT EXISTS findings_dedup_idx ON findings (engagement_id, md5(dedup_key));
 CREATE INDEX IF NOT EXISTS findings_eng_sev_idx ON findings (engagement_id, severity);
 CREATE INDEX IF NOT EXISTS findings_status_idx  ON findings (engagement_id, status);
 CREATE INDEX IF NOT EXISTS findings_priority_idx ON findings (engagement_id, priority);
@@ -126,6 +131,14 @@ ALTER TABLE findings ADD COLUMN IF NOT EXISTS cve_id   TEXT;
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS kev      BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS epss     NUMERIC(6,5);
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS priority TEXT;
+
+-- Migrate dedup from inline btree UNIQUE (fails on values > ~2704 bytes) to a
+-- hash index. Drops the old auto-named constraints if present (no-op on a fresh
+-- init, where they were never created) and ensures the hash indexes exist.
+ALTER TABLE assets   DROP CONSTRAINT IF EXISTS assets_engagement_id_type_value_key;
+ALTER TABLE findings DROP CONSTRAINT IF EXISTS findings_engagement_id_dedup_key_key;
+CREATE UNIQUE INDEX IF NOT EXISTS assets_dedup_idx   ON assets   (engagement_id, type, md5(value));
+CREATE UNIQUE INDEX IF NOT EXISTS findings_dedup_idx ON findings (engagement_id, md5(dedup_key));
 
 -- Convenience view: newest assets first, with age. Handy for the UI and for
 -- the "what appeared since last run" continuous-monitoring diff.
