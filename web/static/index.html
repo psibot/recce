@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>recce — recon console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0d14; --panel:#10141e; --panel2:#141a26; --line:#232c3d;
+    --ink:#e6edf3; --muted:#8291a8; --faint:#5b6b82;
+    --accent:#5ad1c9; --accent-dim:#2b6f6a;
+    --crit:#ff4d6d; --high:#ff8a3d; --med:#f5c451; --low:#5ad1c9; --info:#8291a8;
+    --grotesk:"Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--grotesk); font-size:14px; line-height:1.45;
+    display:grid; grid-template-rows:auto 1fr auto; height:100vh; overflow:hidden;
+  }
+  a{color:var(--accent);text-decoration:none}
+
+  /* ---- top bar ---- */
+  .topbar{
+    display:flex; align-items:center; gap:14px;
+    padding:12px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.02em}
+  .reticle{width:18px;height:18px;flex:none}
+  .reticle circle,.reticle line{stroke:var(--accent);stroke-width:1.4;fill:none}
+  .brand small{color:var(--muted);font-weight:500;font-family:var(--mono);font-size:11px}
+  .topbar .ctx{margin-left:auto;color:var(--muted);font-family:var(--mono);font-size:12px}
+  .topbar .ctx b{color:var(--ink);font-weight:600}
+
+  /* ---- body split ---- */
+  .split{display:grid;grid-template-columns:260px 1fr;min-height:0}
+  .sidebar{
+    border-right:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .side-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px}
+  .side-head h2{margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .eng-list{overflow:auto;flex:1;padding:4px 8px 12px}
+  .eng-item{
+    padding:9px 10px;border-radius:7px;cursor:pointer;border:1px solid transparent;margin-bottom:2px;
+  }
+  .eng-item:hover{background:var(--panel2)}
+  .eng-item.active{background:var(--panel2);border-color:var(--accent-dim)}
+  .eng-item .nm{font-weight:600}
+  .eng-item .mt{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
+
+  .main{overflow:auto;min-height:0;padding:22px 26px 40px}
+  .empty{color:var(--muted);max-width:34rem;margin-top:12vh;text-align:center;font-size:15px}
+  .empty b{color:var(--ink)}
+
+  .eng-title{display:flex;align-items:baseline;gap:12px;margin:0 0 2px}
+  .eng-title h1{margin:0;font-size:24px;letter-spacing:-.01em}
+  .status-tag{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+  button.danger{font-family:var(--mono);font-size:11px;padding:5px 11px;border-radius:7px;cursor:pointer;background:var(--panel2);border:1px solid #5a2b34;color:var(--crit);font-weight:600}
+  button.danger:hover{background:var(--crit);color:#fff;border-color:var(--crit)}
+  .slugline{font-family:var(--mono);font-size:12px;color:var(--faint);margin-bottom:22px}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:16px 18px;margin-bottom:18px}
+  .panel > h3{
+    margin:0 0 12px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;display:flex;align-items:center;gap:8px;
+  }
+  .panel > h3 .count{font-family:var(--mono);color:var(--accent);letter-spacing:0}
+  .exp{font-family:var(--mono);font-size:10px;letter-spacing:.04em;text-transform:none;
+       padding:3px 9px;border:1px solid var(--line);border-radius:6px;color:var(--muted);background:var(--panel2)}
+  .exp:hover{border-color:var(--accent-dim);color:var(--ink)}
+  #expPdf{color:var(--accent);border-color:var(--accent-dim)}
+
+  /* scope */
+  .scope-rules{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
+  .rule{font-family:var(--mono);font-size:12px;padding:4px 9px;border-radius:6px;border:1px solid var(--line);background:var(--panel2)}
+  .rule.inc{border-color:var(--accent-dim)}
+  .rule.exc{border-color:#5a2b34}
+  .rule .k{color:var(--muted)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  select,input,button{font-family:var(--mono);font-size:12px}
+  select,input{
+    background:var(--bg);border:1px solid var(--line);color:var(--ink);
+    padding:7px 9px;border-radius:7px;
+  }
+  input{min-width:180px}
+  input::placeholder{color:var(--faint)}
+  button{
+    background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    padding:7px 13px;border-radius:7px;cursor:pointer;font-weight:600;
+  }
+  button:hover{border-color:var(--accent-dim)}
+  button.primary{background:var(--accent);color:#04201d;border-color:var(--accent)}
+  button.primary:hover{filter:brightness(1.08)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+
+  /* run control */
+  .run-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .run-row .spacer{flex:1}
+
+  /* assets grid */
+  .asset-types{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  .chip{
+    font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:20px;cursor:pointer;
+    border:1px solid var(--line);background:var(--panel2);color:var(--muted);
+  }
+  .chip.active{color:var(--ink);border-color:var(--accent-dim)}
+  .chip b{color:var(--accent);margin-left:5px}
+  .asset-list{font-family:var(--mono);font-size:12.5px;max-height:240px;overflow:auto}
+  .asset-list div{padding:3px 0;border-bottom:1px solid var(--line);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .asset-list .am{color:var(--faint);margin-left:10px}
+
+  /* findings */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .sev{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 8px;border-radius:5px;text-transform:uppercase}
+  .sev.critical{color:var(--crit);background:rgba(255,77,109,.12)}
+  .sev.high{color:var(--high);background:rgba(255,138,61,.12)}
+  .sev.medium{color:var(--med);background:rgba(245,196,81,.12)}
+  .sev.low{color:var(--low);background:rgba(90,209,201,.12)}
+  .sev.info{color:var(--info);background:rgba(130,145,168,.12)}
+  .tier{font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em}
+  .tier.fire{color:#fff;background:var(--crit)}
+  .tier.smoke{color:#04201d;background:var(--high)}
+  .tier.ice{color:var(--info);background:rgba(130,145,168,.15)}
+  .kev{font-family:var(--mono);font-size:9px;font-weight:700;margin-left:4px;padding:2px 5px;border-radius:4px;color:#fff;background:var(--crit);vertical-align:middle}
+  td.mono{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+  /* export download buttons */
+  .dl{
+    display:inline-flex;flex-direction:column;gap:1px;
+    font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink);
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:9px 14px;text-decoration:none;
+  }
+  .dl:hover{border-color:var(--accent-dim)}
+  .dl span{font-weight:400;font-size:10.5px;color:var(--muted)}
+
+  /* ---- console dock (signature) ---- */
+  .dock{border-top:1px solid var(--line);background:var(--panel);transition:height .18s ease;height:38px;display:flex;flex-direction:column}
+  .dock.open{height:300px}
+  .dock-bar{display:flex;align-items:center;gap:14px;padding:0 16px;height:38px;cursor:pointer;flex:none}
+  .dock-bar .lbl{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .pipe{display:flex;align-items:center;gap:6px;overflow:hidden}
+  .stage{font-family:var(--mono);font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px}
+  .stage .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
+  .stage.run .dot{background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:pulse 1.2s infinite}
+  .stage.run{color:var(--accent)}
+  .stage.done .dot{background:var(--accent-dim)}
+  .stage.done{color:var(--muted)}
+  .stage.fail .dot{background:var(--crit)}
+  .stage.fail{color:var(--crit)}
+  .stage .arrow{color:var(--line)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(90,209,201,.5)}70%{box-shadow:0 0 0 6px rgba(90,209,201,0)}100%{box-shadow:0 0 0 0 rgba(90,209,201,0)}}
+  .dock-bar .rt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .console{flex:1;overflow:auto;padding:10px 16px;font-family:var(--mono);font-size:12px;line-height:1.6;background:var(--bg)}
+  .console .ln{white-space:pre-wrap;word-break:break-word}
+  .console .ln.mod{color:var(--accent)}
+  .console .ln.fail{color:var(--crit)}
+  .console .ln.meta{color:var(--faint)}
+  .toast{position:fixed;bottom:52px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:9px 16px;border-radius:8px;font-family:var(--mono);font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">
+      <svg class="reticle" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><line x1="10" y1="0" x2="10" y2="5"/><line x1="10" y1="15" x2="10" y2="20"/><line x1="0" y1="10" x2="5" y2="10"/><line x1="15" y1="10" x2="20" y2="10"/></svg>
+      recce <small>recon console</small>
+    </span>
+    <span class="ctx" id="ctx"></span>
+  </header>
+
+  <div class="split">
+    <aside class="sidebar">
+      <div class="side-head">
+        <h2>Engagements</h2>
+        <button id="newEng" title="New engagement">+ new</button>
+      </div>
+      <div class="eng-list" id="engList"></div>
+    </aside>
+
+    <main class="main" id="main">
+      <div class="empty" id="empty">
+        <p><b>No engagement selected.</b><br>Pick one on the left, or create a new engagement to define scope and run recon.</p>
+      </div>
+    </main>
+  </div>
+
+  <section class="dock" id="dock">
+    <div class="dock-bar" id="dockBar">
+      <span class="lbl">Live scan</span>
+      <div class="pipe" id="pipe"></div>
+      <span class="rt" id="dockRt">idle</span>
+    </div>
+    <div class="console" id="console"></div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  if(!r.ok) throw new Error((await r.text()) || r.status);
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
+};
+const jpost = (path, body) => api(path, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+
+let state = { engagements:[], current:null, engines:["default"], assetType:null, ws:null };
+
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2200); }
+
+async function loadEngagements(){
+  state.engagements = await api("/engagements");
+  const el = $("#engList"); el.innerHTML = "";
+  if(!state.engagements.length){ el.innerHTML = `<div class="eng-item mt" style="color:var(--faint)">none yet</div>`; }
+  for(const e of state.engagements){
+    const d = document.createElement("div");
+    d.className = "eng-item" + (state.current===e.id ? " active":"");
+    d.innerHTML = `<div class="nm">${escapeHtml(e.name)}</div><div class="mt">${e.slug}</div>`;
+    d.onclick = ()=>selectEngagement(e.id);
+    el.appendChild(d);
+  }
+}
+
+async function loadEngines(){ try{ state.engines = (await api("/engines")).engines; }catch{} }
+
+async function selectEngagement(id){
+  state.current = id; state.assetType = null;
+  await loadEngagements();
+  const e = await api(`/engagements/${id}`);
+  $("#ctx").innerHTML = `engagement <b>${escapeHtml(e.name)}</b>`;
+  renderDetail(e);
+  await refreshResults();
+}
+
+function renderDetail(e){
+  const engOpts = state.engines.map(x=>`<option value="${x}">${x}</option>`).join("");
+  const scope = (e.scope||[]).map(r=>{
+    const cls = r.kind==="include"?"inc":"exc";
+    return `<span class="rule ${cls}"><span class="k">${r.kind==="include"?"+":"−"} ${r.pattern_type}</span> ${escapeHtml(r.value)}</span>`;
+  }).join("") || `<span class="rule" style="color:var(--faint)">no scope yet — add a domain to seed recon</span>`;
+
+  $("#main").innerHTML = `
+    <div class="eng-title"><h1>${escapeHtml(e.name)}</h1><span class="status-tag">${e.status}</span>
+      <button id="delEng" class="danger" style="margin-left:auto" title="Delete this engagement and all its data">delete</button>
+    </div>
+    <div class="slugline">${e.slug} · ${e.id}</div>
+
+    <div class="panel">
+      <h3>Scope <span class="count">${(e.scope||[]).length}</span></h3>
+      <div class="scope-rules">${scope}</div>
+      <div class="row">
+        <select id="scKind"><option value="include">include</option><option value="exclude">exclude</option></select>
+        <select id="scType"><option value="domain">domain</option><option value="cidr">cidr</option><option value="regex">regex</option></select>
+        <input id="scVal" placeholder="example.com  /  10.0.0.0/8  /  ^admin\\.">
+        <button id="addScope">add rule</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Run recon</h3>
+      <div class="run-row">
+        <span style="color:var(--muted);font-family:var(--mono);font-size:12px">engine</span>
+        <select id="engineSel">${engOpts}</select>
+        <div class="spacer"></div>
+        <button class="primary" id="runBtn">▶ run engine</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Assets <span class="count" id="assetTotal"></span></h3>
+      <div class="asset-types" id="assetTypes"></div>
+      <div class="asset-list" id="assetList"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Findings <span class="count" id="findTotal"></span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <a class="exp" id="expPdf" href="/engagements/${e.id}/export?format=pdf">export PDF</a>
+          <a class="exp" id="expJson" href="/engagements/${e.id}/export?format=dossier">JSON</a>
+          <a class="exp" id="expNuclei" href="/engagements/${e.id}/export?format=nuclei">nuclei</a>
+        </span>
+      </h3>
+      <div id="findings"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Export → Dossier</h3>
+      <div class="row">
+        <a class="dl" href="/engagements/${e.id}/export?format=nuclei" download>⬇ Nuclei JSONL <span>import as Nuclei in Dossier</span></a>
+        <a class="dl" href="/engagements/${e.id}/export?format=dossier" download>⬇ Full bundle <span>lossless recce JSON</span></a>
+      </div>
+    </div>
+  `;
+
+  $("#addScope").onclick = async ()=>{
+    const val = $("#scVal").value.trim(); if(!val) return;
+    await jpost(`/engagements/${e.id}/scope`, {kind:$("#scKind").value, pattern_type:$("#scType").value, value:val});
+    toast("scope rule added");
+    selectEngagement(e.id);
+  };
+  $("#runBtn").onclick = ()=>startScan(e.id, $("#engineSel").value);
+  $("#delEng").onclick = async ()=>{
+    const fc = Object.values(e.finding_counts||{}).reduce((a,b)=>a+b,0);
+    const ac = (e.asset_counts||[]).reduce((a,c)=>a+Number(c.n),0);
+    if(!confirm(`Delete engagement "${e.name}"?\n\nThis permanently removes its scope, ${ac} assets and ${fc} findings. This cannot be undone.`)) return;
+    try{
+      await api(`/engagements/${e.id}`, {method:"DELETE"});
+      toast("engagement deleted");
+      state.current = null;
+      await loadEngagements();
+      if(state.engagements.length) selectEngagement(state.engagements[0].id);
+      else { $("#main").innerHTML = `<div class="empty"><p><b>No engagement selected.</b><br>Create a new engagement to begin.</p></div>`; $("#ctx").innerHTML=""; }
+    }catch(err){ toast("delete failed: "+err.message); }
+  };
+}
+
+async function refreshResults(){
+  if(!state.current) return;
+  const [assets, findings, detail] = await Promise.all([
+    api(`/engagements/${state.current}/assets`),
+    api(`/engagements/${state.current}/findings`),
+    api(`/engagements/${state.current}`),
+  ]);
+  // asset type chips
+  const counts = {};
+  for(const a of assets){ counts[a.type]=(counts[a.type]||0)+1; }
+  const types = Object.keys(counts).sort();
+  $("#assetTotal").textContent = assets.length;
+  const chipsEl = $("#assetTypes"); chipsEl.innerHTML = "";
+  if(!types.length){ chipsEl.innerHTML = `<span style="color:var(--faint);font-family:var(--mono);font-size:12px">no assets yet — run the engine</span>`; }
+  for(const t of types){
+    const c = document.createElement("span");
+    c.className = "chip" + (state.assetType===t?" active":"");
+    c.innerHTML = `${t}<b>${counts[t]}</b>`;
+    c.onclick = ()=>{ state.assetType = state.assetType===t?null:t; renderAssets(assets); refreshChips(types,counts); };
+    chipsEl.appendChild(c);
+  }
+  renderAssets(assets);
+
+  // findings
+  $("#findTotal").textContent = findings.length;
+  const fEl = $("#findings");
+  if(!findings.length){ fEl.innerHTML = `<div style="color:var(--faint);font-family:var(--mono);font-size:12px">no findings yet</div>`; }
+  else{
+    fEl.innerHTML = `<table><thead><tr><th>priority</th><th>sev</th><th>finding</th><th>cve</th><th>epss</th><th>cvss</th><th>module</th></tr></thead><tbody>${
+      findings.map(f=>`<tr>
+        <td>${f.priority?`<span class="tier ${f.priority}">${f.priority}</span>`:""}${f.kev?`<span class="kev">KEV</span>`:""}</td>
+        <td><span class="sev ${f.severity}">${f.severity}</span></td>
+        <td>${escapeHtml(f.title)}</td>
+        <td class="mono">${f.cve_id?`<a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(f.cve_id)}" target="_blank" rel="noopener">${escapeHtml(f.cve_id)}</a>`:""}</td>
+        <td class="mono">${f.epss!=null?Number(f.epss).toFixed(3):""}</td>
+        <td class="mono">${f.cvss_score??""}</td>
+        <td class="mono">${f.source_module??""}</td>
+      </tr>`).join("")
+    }</tbody></table>`;
+  }
+}
+
+function refreshChips(types,counts){
+  const chipsEl = $("#assetTypes"); chipsEl.innerHTML="";
+  for(const t of types){
+    const c=document.createElement("span");
+    c.className="chip"+(state.assetType===t?" active":"");
+    c.innerHTML=`${t}<b>${counts[t]}</b>`;
+    c.onclick=()=>{ state.assetType=state.assetType===t?null:t; refreshResults(); };
+    chipsEl.appendChild(c);
+  }
+}
+
+function renderAssets(assets){
+  const list = state.assetType ? assets.filter(a=>a.type===state.assetType) : assets;
+  const el = $("#assetList");
+  el.innerHTML = list.slice(0,500).map(a=>
+    `<div>${escapeHtml(a.value)}<span class="am">${a.type}${a.source_module?" · "+a.source_module:""}</span></div>`
+  ).join("") || `<div style="color:var(--faint);border:none">—</div>`;
+}
+
+// ---- live scan ----
+const PIPE_HINT = ["bbot","subdomains","httprobe","portscan","urls","fuzzing","waf","nuclei","screenshots"];
+function renderPipe(stages){
+  const el = $("#pipe"); el.innerHTML="";
+  const names = Object.keys(stages);
+  names.forEach((n,i)=>{
+    const s=document.createElement("span");
+    s.className="stage "+(stages[n]||"");
+    s.innerHTML=`<span class="dot"></span>${n}`;
+    el.appendChild(s);
+    if(i<names.length-1){ const a=document.createElement("span"); a.className="arrow"; a.textContent="→"; el.appendChild(a); }
+  });
+}
+
+async function startScan(eid, engine){
+  const btn=$("#runBtn"); btn.disabled=true; btn.textContent="⋯ queued";
+  $("#console").innerHTML=""; $("#dock").classList.add("open"); $("#dockRt").textContent="running";
+  let stages={}; let last=null;
+  renderPipe(stages);
+  try{
+    const {run_id} = await jpost(`/engagements/${eid}/scans`, {engine});
+    const proto = location.protocol==="https:"?"wss:":"ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/ws/runs/${run_id}`);
+    state.ws = ws;
+    ws.onmessage = ev=>{
+      const line = ev.data;
+      appendLine(line);
+      const mstart = line.match(/^>>> module (\S+)/);
+      if(mstart){ if(last) stages[last]="done"; last=mstart[1]; stages[last]="run"; renderPipe(stages); }
+      const mfail = line.match(/^!!! module (\S+) failed/);
+      if(mfail){ stages[mfail[1]]="fail"; renderPipe(stages); }
+      if(line.includes("__END__") || line.startsWith("[recce] engine finished")){
+        if(last && stages[last]==="run") stages[last]="done"; renderPipe(stages);
+        $("#dockRt").textContent="complete"; btn.disabled=false; btn.textContent="▶ run engine";
+        refreshResults();
+      }
+    };
+    ws.onclose=()=>{ btn.disabled=false; btn.textContent="▶ run engine"; };
+    ws.onerror=()=>{ appendLine("[recce] websocket error — check worker logs"); };
+  }catch(err){
+    appendLine("[recce] failed to start: "+err.message);
+    btn.disabled=false; btn.textContent="▶ run engine";
+    $("#dockRt").textContent="error";
+  }
+}
+
+function appendLine(line){
+  const c=$("#console"); const d=document.createElement("div");
+  let cls="ln";
+  if(/^>>> module/.test(line)) cls+=" mod";
+  else if(/^!!!/.test(line)) cls+=" fail";
+  else if(/^\[recce\]|^run_id=|^recce-/.test(line)) cls+=" meta";
+  d.className=cls; d.textContent=line; c.appendChild(d);
+  c.scrollTop=c.scrollHeight;
+}
+
+$("#dockBar").onclick = ()=>$("#dock").classList.toggle("open");
+$("#newEng").onclick = async ()=>{
+  const name = prompt("Engagement name");
+  if(!name) return;
+  const e = await jpost("/engagements", {name});
+  await loadEngagements();
+  selectEngagement(e.id);
+};
+
+function escapeHtml(s){ return String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+(async function init(){
+  await loadEngines();
+  await loadEngagements();
+  if(state.engagements.length) selectEngagement(state.engagements[0].id);
+})();
+</script>
+</body>
+</html>

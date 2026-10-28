@@ -1,0 +1,21 @@
+name: vuln-scan
+description: >
+  Full vulnerability assessment (CVEngine-style). Discovery (subdomains, live
+  HTTP, ports) feeds service/version + CVE scanning (nmap vulners, nuclei,
+  cvematch), app-specific scanners (wpscan for WordPress, node2shell for
+  Node.js), screenshots (gowitness), and RDP exposure (rdp). The post-run CVE
+  pass then ranks every CVE finding by KEV / exploit availability / EPSS into
+  fire/smoke/ice. Order is resolved by the DAG, not this listing.
+modules:
+  - { name: subdomains, enabled: true,  consumes: [domain],            produces: [subdomain] }
+  - { name: httprobe,   enabled: true,  consumes: [subdomain, domain], produces: [url, tech] }
+  - { name: portscan,   enabled: true,  consumes: [subdomain, ip],     produces: [port, ip] }
+  - { name: nmap,       enabled: true,  consumes: [ip, subdomain, port], produces: [port, service, finding] }
+  - { name: urls,       enabled: true,  consumes: [url],               produces: [url, endpoint] }
+  - { name: nuclei,     enabled: true,  consumes: [url],               produces: [finding] }
+  - { name: cvematch,   enabled: true,  consumes: [tech],              produces: [finding] }
+  - { name: wpscan,     enabled: true,  consumes: [tech],              produces: [finding] }
+  - { name: node2shell, enabled: true,  consumes: [url],               produces: [finding] }
+  - { name: gowitness,  enabled: true,  consumes: [url],               produces: [screenshot, tech] }
+  - { name: rdp,        enabled: true,  consumes: [port],              produces: [finding] }
+  - { name: waf,        enabled: true,  consumes: [url],               produces: [waf] }

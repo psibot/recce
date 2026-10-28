@@ -1,0 +1,23 @@
+name: bbot-recon
+description: >
+  BBOT-driven recon. BBOT does the heavy discovery in one recursive pass, then
+  recce's modules enrich: httprobe confirms live hosts/tech, nuclei scans the
+  URLs BBOT surfaced. The BBOT preset is set per-module here (overrides the
+  worker-global BBOT_PRESET), so this engine is self-contained.
+modules:
+  - name: bbot
+    enabled: true
+    consumes: [domain]
+    produces: [subdomain, url, ip, port, tech, email, bucket, asn, finding]
+    config:
+      BBOT_PRESET: subdomain-enum
+
+  - name: httprobe
+    enabled: true
+    consumes: [subdomain, domain]
+    produces: [url, tech]
+
+  - name: nuclei
+    enabled: true
+    consumes: [url]
+    produces: [finding]

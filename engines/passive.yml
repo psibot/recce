@@ -1,0 +1,24 @@
+name: passive
+description: >
+  Passive-only reconnaissance — no intrusive traffic to target infrastructure.
+  subfinder (passive sources) + BBOT pinned to passive mode via per-module
+  config, confirmed with a light HTTP probe. Because the passive flag lives in
+  this engine's config, no worker-global env is needed.
+modules:
+  - name: subdomains
+    enabled: true
+    consumes: [domain]
+    produces: [subdomain]
+
+  - name: bbot
+    enabled: true
+    consumes: [domain]
+    produces: [subdomain, url, ip, tech, email, asn, finding]
+    config:
+      BBOT_PRESET: subdomain-enum
+      BBOT_FLAGS: -rf passive
+
+  - name: httprobe
+    enabled: true
+    consumes: [subdomain, domain]
+    produces: [url, tech]

@@ -1,0 +1,4 @@
+psycopg2-binary==2.9.10
+PyYAML==6.0.2
+redis==5.2.1
+rq==2.1.0

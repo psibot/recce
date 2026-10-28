@@ -1,0 +1,19 @@
+name: full-scan
+description: >
+  reNgine-style full recon pipeline using the discrete ProjectDiscovery tools:
+  subdomains -> live HTTP + tech -> port scan -> crawl for endpoints ->
+  directory fuzzing -> WAF detection -> nuclei. Screenshots via Snapshot are
+  available but off by default. Execution order is resolved from each module's
+  consumes/produces, so the listing order here is only for readability.
+modules:
+  - { name: subdomains,  enabled: true,  consumes: [domain],           produces: [subdomain] }
+  - { name: httprobe,    enabled: true,  consumes: [subdomain, domain], produces: [url, tech] }
+  - { name: portscan,    enabled: true,  consumes: [subdomain, ip],     produces: [port, ip] }
+  - { name: nmap,        enabled: true,  consumes: [ip, subdomain, port], produces: [port, service, finding] }
+  - { name: urls,        enabled: true,  consumes: [url],               produces: [url, endpoint] }
+  - { name: fuzzing,     enabled: true,  consumes: [url],               produces: [endpoint, finding] }
+  - { name: waf,         enabled: true,  consumes: [url],               produces: [waf] }
+  - { name: nuclei,      enabled: true,  consumes: [url],               produces: [finding] }
+  - { name: cvematch,    enabled: true,  consumes: [tech],              produces: [finding] }
+  - { name: gowitness,   enabled: true,  consumes: [url],               produces: [screenshot, tech] }
+  - { name: screenshots, enabled: false, consumes: [url],               produces: [screenshot] }

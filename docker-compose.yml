@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: recce
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recce}
+      POSTGRES_DB: recce
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recce"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Object storage for evidence/screenshots is not wired into any code path
+  # yet, so no storage service runs here. MinIO was removed because its images
+  # were deleted from Docker Hub (Sep 2026) and the last free build carries an
+  # unpatched auth-bypass CVE. When we wire evidence storage, add a maintained,
+  # S3-compatible server here — Garage (dxflrs/garage) or SeaweedFS
+  # (chrislusf/seaweedfs) are good anonymously-pullable options.
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    environment:
+      DATABASE_URL: postgres://recce:${POSTGRES_PASSWORD:-recce}@postgres:5432/recce
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    ports:
+      - "8000:8000"   # front with Nginx Proxy Manager + Authentik/Keycloak SSO
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      DATABASE_URL: postgres://recce:${POSTGRES_PASSWORD:-recce}@postgres:5432/recce
+      REDIS_URL: redis://redis:6379/0
+      RECCE_HOME: /opt/recce
+      # Enable the screenshots module by pointing it at your Snapshot instance:
+      SNAPSHOT_URL: ${SNAPSHOT_URL:-}
+      SNAPSHOT_TOKEN: ${SNAPSHOT_TOKEN:-}
+      # BBOT module (bbot-recon / passive engines): which preset(s) and flags.
+      BBOT_PRESET: ${BBOT_PRESET:-subdomain-enum}
+      BBOT_FLAGS: ${BBOT_FLAGS:-}
+      # fuzzing module: path (inside the container) to a mounted wordlist.
+      # Unset -> the fuzzing module skips. Mount SecLists via the volume below.
+      FFUF_WORDLIST: ${FFUF_WORDLIST:-}
+      # CVE intelligence (cvematch module + the post-run KEV/EPSS enrichment).
+      # NVD_API_KEY lifts cvematch's NVD rate limit (strongly recommended).
+      # RECCE_CVE_OFFLINE=1 disables all CVE feed fetches (air-gapped runs).
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      RECCE_CVE_OFFLINE: ${RECCE_CVE_OFFLINE:-}
+      CVE_MIN_CVSS: ${CVE_MIN_CVSS:-7.0}
+      # Streaming/throughput for large inputs. The pipeline streams per-record
+      # and ingest commits every RECCE_COMMIT_EVERY findings, so long runs
+      # persist progress and survive a timeout/kill. NUCLEI_FLAGS tunes nuclei
+      # for big URL sets, e.g. "-c 50 -rl 150 -timeout 8".
+      RECCE_COMMIT_EVERY: ${RECCE_COMMIT_EVERY:-100}
+      NUCLEI_FLAGS: ${NUCLEI_FLAGS:-}
+      # nmap module (service + vulners CVE scan)
+      NMAP_PORTS: ${NMAP_PORTS:-}
+      NMAP_FLAGS: ${NMAP_FLAGS:--T4 -Pn}
+      # gowitness screenshots land here (mount the volume below to keep them)
+      GOWITNESS_DIR: ${GOWITNESS_DIR:-/screenshots}
+      # wpscan WordPress vuln DB token (wpscan.com); node2shell runner override
+      WPSCAN_API_TOKEN: ${WPSCAN_API_TOKEN:-}
+      NODE2SHELL_FLAGS: ${NODE2SHELL_FLAGS:-}
+      # Extra exploitation-intel sources for CVE tiering (all optional):
+      # VulnCheck community KEV (needs a key), ENISA EUVD endpoint override.
+      VULNCHECK_API_KEY: ${VULNCHECK_API_KEY:-}
+      RECCE_EUVD_URL: ${RECCE_EUVD_URL:-}
+    volumes:
+      - ${RECCE_SCREENSHOTS_DIR:-recce_screenshots}:/screenshots
+    # Mount a wordlist dir for ffuf, e.g. SecLists on the host. Then set
+    # FFUF_WORDLIST=/wordlists/Discovery/Web-Content/common.txt
+    # volumes:
+    #   - ${SECLISTS_DIR:-/usr/share/seclists}:/wordlists:ro
+    # naabu does a connect scan without privileges; uncomment for SYN scans:
+    # cap_add:
+    #   - NET_RAW
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    # Scale horizontally:  docker compose up -d --scale worker=4
+    deploy:
+      replicas: 1
+
+volumes:
+  pgdata:
+  recce_screenshots:

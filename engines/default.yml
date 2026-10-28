@@ -1,0 +1,43 @@
+name: default
+description: >
+  Baseline external recon: enumerate subdomains, probe live HTTP services and
+  tech, port-scan discovered hosts, run nuclei, and (optionally) screenshot
+  live URLs via Snapshot. Execution order is resolved from each module's
+  consumes/produces, not this file's order — so you can list modules however
+  reads best. This file is the contract between the web UI and the orchestrator.
+#
+# Each module entry may also carry a `config:` map of ENV_VAR -> value that the
+# orchestrator applies to that module's process only (not worker-global), e.g.
+#   - name: bbot
+#     config: { BBOT_PRESET: "subdomain-enum web", BBOT_FLAGS: "-rf passive" }
+#   - name: fuzzing
+#     config: { FFUF_WORDLIST: /wordlists/Discovery/Web-Content/common.txt }
+# Per-module config overrides the worker-global env for that module only.
+
+modules:
+  - name: subdomains
+    enabled: true
+    consumes: [domain]
+    produces: [subdomain]
+
+  - name: httprobe
+    enabled: true
+    consumes: [subdomain, domain]
+    produces: [url, tech]
+
+  - name: portscan
+    enabled: true
+    consumes: [subdomain, ip]
+    produces: [port, ip]
+
+  - name: nuclei
+    enabled: true
+    consumes: [url]
+    produces: [finding]
+
+  # Delegates capture to Snapshot. Disabled until SNAPSHOT_URL is configured
+  # (see docker-compose worker env). Enable per-engagement as needed.
+  - name: screenshots
+    enabled: false
+    consumes: [url]
+    produces: [screenshot]
