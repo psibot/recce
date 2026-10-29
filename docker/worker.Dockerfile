@@ -105,6 +105,16 @@ RUN git clone --depth 1 https://github.com/assetnote/node2shell-scanner /opt/nod
  && echo "node2shell-scanner installed" \
  || echo "WARN: node2shell-scanner install failed; node2shell module skips"
 
+# reconftw (`reconftw` module) — cloned to /opt/reconftw. We do NOT run its
+# install.sh (it would pull a huge, overlapping toolset); reconftw.sh uses the
+# tools already on PATH in this image. For full reconftw capability, run
+# `/opt/reconftw/install.sh` in the worker, or mount a pre-built reconftw.
+RUN git clone --depth 1 https://github.com/six2dez/reconftw /opt/reconftw \
+ && chmod +x /opt/reconftw/reconftw.sh \
+ && ln -sf /opt/reconftw/reconftw.sh /usr/local/bin/reconftw.sh \
+ && echo "reconftw cloned (run its install.sh for full tool coverage)" \
+ || echo "WARN: reconftw clone failed; reconftw module skips"
+
 # WPScan (`wpscan` module) — a Ruby gem. Needs a toolchain to build native
 # extensions. Best-effort: a gem build failure must not brick the image.
 RUN apt-get update \

@@ -105,7 +105,27 @@ For a decoupled workflow, each engagement also exports on demand:
   (engagement, scope, assets, findings with every Dossier field) for a native
   importer. Both are downloadable from the console's "Export → Dossier" panel.
 
-## Status: v0.8
+## Status: v0.9
+
+Added in v0.9 — DNS resolution, reconftw, IPs in exports:
+
+- **`resolve` module** (dnsx) — resolves every hostname to its A/AAAA IPs,
+  emits `ip` assets, and annotates each host asset with `attrs.ips`. Added to
+  default/cve-scan/full-scan/vuln-scan, ordered before portscan/nmap so the
+  IPs feed them.
+- **`reconftw` module** — wraps [six2dez/reconftw](https://github.com/six2dez/reconftw)
+  and harvests its output tree (subdomains, resolved IPs, live web URLs) into
+  recce assets. Added to `full-scan`. Kept light by default (`RECONFTW_MODE=-s`);
+  it's heavy, so the image clones it but doesn't run its full install.sh — the
+  module uses the tools already on PATH and skips cleanly if reconftw is absent.
+- **IPs in all exports** — every export now carries resolved IPs: a `host_ips`
+  map in the JSON bundle, an `ips` field on each finding and asset, `ip`/`ips`
+  on the nuclei export records, and an `IP:` line on each PDF finding. Built
+  from all available IP hints (resolve's attrs.ips, dnsx/httpx/nmap attrs.ip,
+  ip-asset attrs.host). Verified end-to-end against a live DB.
+
+Added in v0.8.1 — fixed oversized-value ingest crash (hash-based dedup indexes
+on `md5(value)`/`md5(dedup_key)`, value cap, per-record savepoint isolation).
 
 Added in v0.8 — more scanners, nmap vuln scan, delete, wider exploit intel:
 

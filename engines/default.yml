@@ -20,6 +20,11 @@ modules:
     consumes: [domain]
     produces: [subdomain]
 
+  - name: resolve
+    enabled: true
+    consumes: [subdomain, domain]
+    produces: [ip, subdomain]
+
   - name: httprobe
     enabled: true
     consumes: [subdomain, domain]

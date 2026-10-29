@@ -66,7 +66,52 @@ def fetch_bundle(conn, eid):
         )
         findings = cur.fetchall()
 
-    # shape findings: fold the joined asset columns into a nested asset ref
+    # Build a hostname -> [IPs] map from the asset inventory so every export can
+    # carry resolved IPs. IP hints live in several places: the resolve module
+    # sets attrs.ips on the host; dnsx/httpx/nmap set attrs.ip on url/port/
+    # service assets; and ip-type assets record attrs.host.
+    host_ips = {}
+
+    def _host_of(value):
+        if not value:
+            return None
+        v = str(value)
+        if "://" in v:
+            v = v.split("://", 1)[1]
+        v = v.split("/", 1)[0].split("?", 1)[0]
+        if v.startswith("["):                       # [ipv6]:port
+            return v[1:].split("]", 1)[0]
+        return v.rsplit(":", 1)[0] if v.count(":") == 1 else v
+
+    def _add(host, ip):
+        if host and ip:
+            host_ips.setdefault(host, [])
+            if ip not in host_ips[host]:
+                host_ips[host].append(ip)
+
+    for a in assets:
+        attrs = a.get("attrs") or {}
+        atype, aval = a.get("type"), a.get("value")
+        if atype == "ip" and attrs.get("host"):
+            _add(attrs["host"], aval)
+        host = _host_of(aval) if atype in ("subdomain", "url", "port", "service") else None
+        for ip in (attrs.get("ips") or []):
+            _add(host, ip)
+        if attrs.get("ip"):
+            _add(host, attrs["ip"])
+
+    # attach resolved IPs to each asset (as an `ips` field) for the export
+    assets_out = []
+    for a in assets:
+        a = dict(a)
+        if a.get("type") == "ip":
+            a["ips"] = [a["value"]]
+        else:
+            a["ips"] = host_ips.get(_host_of(a.get("value")), [])
+        assets_out.append(a)
+
+    # shape findings: fold the joined asset columns into a nested asset ref,
+    # and attach the resolved IPs of the finding's host.
     shaped = []
     for f in findings:
         f = dict(f)
@@ -74,6 +119,7 @@ def fetch_bundle(conn, eid):
         avalue = f.pop("asset_value", None)
         f["asset"] = {"type": atype, "value": avalue} if avalue else None
         f["references"] = f.pop("refs", []) or []
+        f["ips"] = host_ips.get(_host_of(avalue), []) if avalue else []
         shaped.append(f)
 
     return {
@@ -81,11 +127,14 @@ def fetch_bundle(conn, eid):
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "engagement": dict(eng),
         "scope": [dict(s) for s in scope],
-        "assets": [dict(a) for a in assets],
+        "assets": assets_out,
         "findings": shaped,
+        "host_ips": host_ips,
         "summary": {
             "asset_count": len(assets),
             "finding_count": len(shaped),
+            "ip_count": sum(1 for a in assets if a.get("type") == "ip"),
+            "resolved_host_count": len(host_ips),
             "by_severity": {s: sum(1 for f in shaped if f["severity"] == s) for s in SEV_ORDER},
             "by_priority": {p: sum(1 for f in shaped if f.get("priority") == p)
                             for p in ("fire", "smoke", "ice")},
@@ -120,6 +169,8 @@ def _finding_to_nuclei(f):
         },
         "matched-at": target,
         "host": target,
+        "ip": (f.get("ips") or [None])[0],
+        "ips": f.get("ips") or [],
         "matcher-name": (ev0.get("label") if isinstance(ev0, dict) else None),
         "request": ev0.get("request") if isinstance(ev0, dict) else None,
         "response": ev0.get("response") if isinstance(ev0, dict) else None,
@@ -274,6 +325,8 @@ def to_pdf(bundle) -> bytes:
         asset = f.get("asset") or {}
         if asset.get("value"):
             meta_bits.append(f"asset: {esc(asset['value'])}")
+        if f.get("ips"):
+            meta_bits.append(f"IP: {esc(', '.join(f['ips'][:4]))}")
         if meta_bits:
             block.append(Paragraph(" &nbsp;|&nbsp; ".join(meta_bits), styles["meta"]))
 

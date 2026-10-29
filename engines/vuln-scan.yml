@@ -8,6 +8,7 @@ description: >
   fire/smoke/ice. Order is resolved by the DAG, not this listing.
 modules:
   - { name: subdomains, enabled: true,  consumes: [domain],            produces: [subdomain] }
+  - { name: resolve,    enabled: true,  consumes: [subdomain, domain],  produces: [ip, subdomain] }
   - { name: httprobe,   enabled: true,  consumes: [subdomain, domain], produces: [url, tech] }
   - { name: portscan,   enabled: true,  consumes: [subdomain, ip],     produces: [port, ip] }
   - { name: nmap,       enabled: true,  consumes: [ip, subdomain, port], produces: [port, service, finding] }

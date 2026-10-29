@@ -74,6 +74,10 @@ services:
       # nmap module (service + vulners CVE scan)
       NMAP_PORTS: ${NMAP_PORTS:-}
       NMAP_FLAGS: ${NMAP_FLAGS:--T4 -Pn}
+      # resolve module (dnsx) + reconftw module (keep it light: -s or -p)
+      RESOLVE_FLAGS: ${RESOLVE_FLAGS:-}
+      RECONFTW_MODE: ${RECONFTW_MODE:--s}
+      RECONFTW_FLAGS: ${RECONFTW_FLAGS:-}
       # gowitness screenshots land here (mount the volume below to keep them)
       GOWITNESS_DIR: ${GOWITNESS_DIR:-/screenshots}
       # wpscan WordPress vuln DB token (wpscan.com); node2shell runner override
