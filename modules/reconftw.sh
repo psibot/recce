@@ -31,12 +31,23 @@ fi
 
 bin="${RECONFTW_BIN:-}"
 if [[ -z "$bin" ]]; then
-  if have reconftw.sh; then bin="$(command -v reconftw.sh)"
-  elif [[ -x /opt/reconftw/reconftw.sh ]]; then bin="/opt/reconftw/reconftw.sh"
+  # Prefer the REAL install (its lib/ and modules/ are sourced relative to the
+  # script's own dir, so a PATH symlink breaks it). Fall back to PATH.
+  if   [[ -f /opt/reconftw/reconftw.sh ]]; then bin="/opt/reconftw/reconftw.sh"
+  elif have reconftw.sh; then bin="$(command -v reconftw.sh)"
   fi
 fi
-if [[ -z "$bin" || ! -x "$bin" ]]; then
+# Resolve symlinks so we invoke the script at its real location (reconftw
+# computes its base dir from its own path and sources lib/*.sh from there).
+bin="$(readlink -f "$bin" 2>/dev/null || echo "$bin")"
+if [[ -z "$bin" || ! -f "$bin" ]]; then
   log "reconftw.sh not found -- skipping (set RECONFTW_BIN or install to /opt/reconftw)"
+  exit 0
+fi
+rdir="$(cd "$(dirname "$bin")" && pwd)"
+rname="$(basename "$bin")"
+if [[ ! -d "$rdir/lib" && ! -d "$rdir/modules" ]]; then
+  log "reconftw libs not found next to $bin -- skipping (incomplete install)"
   exit 0
 fi
 
@@ -47,8 +58,9 @@ outroot="$(mktemp -d)"
 while IFS= read -r d; do
   [[ -z "$d" ]] && continue
   log "reconftw $mode -d $d (this can take a while)"
+  # Run from reconftw's own dir so it finds lib/*.sh and modules/*.sh.
   # -o sets output dir; reconftw writes under $outroot/<domain>/...
-  "$bin" -d "$d" "$mode" -o "$outroot" "${extra[@]}" >&2 2>&2 || \
+  ( cd "$rdir" && "./$rname" -d "$d" "$mode" -o "$outroot" "${extra[@]}" ) >&2 2>&2 || \
     log "reconftw exited non-zero for $d; harvesting whatever it wrote"
 done <<<"$domains"
 

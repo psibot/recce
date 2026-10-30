@@ -111,9 +111,13 @@ RUN git clone --depth 1 https://github.com/assetnote/node2shell-scanner /opt/nod
 # `/opt/reconftw/install.sh` in the worker, or mount a pre-built reconftw.
 RUN git clone --depth 1 https://github.com/six2dez/reconftw /opt/reconftw \
  && chmod +x /opt/reconftw/reconftw.sh \
- && ln -sf /opt/reconftw/reconftw.sh /usr/local/bin/reconftw.sh \
+ && printf '#!/usr/bin/env bash\ncd /opt/reconftw && exec ./reconftw.sh "$@"\n' > /usr/local/bin/reconftw.sh \
+ && chmod +x /usr/local/bin/reconftw.sh \
  && echo "reconftw cloned (run its install.sh for full tool coverage)" \
  || echo "WARN: reconftw clone failed; reconftw module skips"
+# NOTE: a bare symlink would break reconftw — it sources lib/*.sh and
+# modules/*.sh relative to its own path, so it must run from /opt/reconftw.
+# The wrapper above cd's there first; the reconftw module does the same.
 
 # WPScan (`wpscan` module) — a Ruby gem. Needs a toolchain to build native
 # extensions. Best-effort: a gem build failure must not brick the image.

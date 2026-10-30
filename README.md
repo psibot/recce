@@ -5,6 +5,7 @@ orchestrates and executes; it drops into **Go** for the hot paths and
 **Python** for anything touching the database, the API, or the queue. Findings
 land in a **Dossier-native schema** so reporting is a query, not an export.
 
+> Working name — rename to taste (the single-word style would fit).
 
 ## Why this shape
 
